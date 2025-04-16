@@ -21,6 +21,16 @@ FACILITY_MAPPING = {
     'OLH': 'FORDHAM',
 }
 
+# Common date formats with their pandas format strings
+DATE_FORMATS = {
+    "MM/DD/YYYY (e.g., 01/31/2023)": "%m/%d/%Y",
+    "DD/MM/YYYY (e.g., 31/01/2023)": "%d/%m/%Y",
+    "YYYY-MM-DD (e.g., 2023-01-31)": "%Y-%m-%d",
+    "MM-DD-YYYY (e.g., 01-31-2023)": "%m-%d-%Y",
+    "DD-MM-YYYY (e.g., 31-01-2023)": "%d-%m-%Y",
+    "YYYY/MM/DD (e.g., 2023/01/31)": "%Y/%m/%d",
+}
+
 def extract_first_name(full_name):
     """Extract first name from 'Last, First' format."""
     if isinstance(full_name, str) and ',' in full_name:
@@ -46,7 +56,7 @@ def get_next_open_date(donation_date, facility_code, center_hours):
     
     return check_date
 
-def process_donation_data(df, donor_name_col, donation_date_col, facility_col):
+def process_donation_data(df, donor_name_col, donation_date_col, facility_col, date_format=None):
     """Process donation data for scheduling."""
     try:
         # Fetch center hours from GitHub
@@ -54,13 +64,23 @@ def process_donation_data(df, donor_name_col, donation_date_col, facility_col):
         center_hours = response.json()
         
         # Process DataFrame
-        df['Donation Date'] = pd.to_datetime(df[donation_date_col])
+        if date_format:
+            df['Donation Date'] = pd.to_datetime(df[donation_date_col], format=date_format, errors='coerce')
+        else:
+            df['Donation Date'] = pd.to_datetime(df[donation_date_col], errors='coerce')
+        
+        # Check for invalid dates and notify user
+        invalid_dates = df['Donation Date'].isna().sum()
+        if invalid_dates > 0:
+            st.warning(f"⚠️ {invalid_dates} dates could not be parsed. Please check the date format.")
+        
         df['Donor Name'] = df[donor_name_col]
         df['Facility'] = df[facility_col]
         df['First_Name'] = df['Donor Name'].apply(extract_first_name)
         df['Center_Name'] = df['Facility'].apply(get_center_name)
         df['Next_Donation_Date'] = df.apply(
-            lambda row: get_next_open_date(row['Donation Date'], row['Facility'], center_hours), 
+            lambda row: get_next_open_date(row['Donation Date'], row['Facility'], center_hours) 
+            if not pd.isna(row['Donation Date']) else pd.NaT, 
             axis=1
         )
         df['Date_to_Send'] = df['Next_Donation_Date'].dt.date  # For filtering in Google Sheets
@@ -100,14 +120,27 @@ def render_donation_scheduler_ui(df):
     with col1:
         donor_name_col = st.selectbox("Donor Name Column", df.columns.tolist())
         donation_date_col = st.selectbox("Donation Date Column", df.columns.tolist())
+        
+        # Add date format selection
+        date_format_description = st.selectbox(
+            "Donation Date Format",
+            list(DATE_FORMATS.keys()),
+            help="Select the format of your donation dates"
+        )
+        date_format = DATE_FORMATS[date_format_description]
     
     with col2:
         facility_col = st.selectbox("Facility Code Column", df.columns.tolist())
+        
+        # Show examples of the current date format
+        if donation_date_col in df.columns:
+            st.markdown("#### Date Preview")
+            st.text(f"Example dates from your file:\n{df[donation_date_col].head(3).to_string(index=False)}")
     
     if st.button("Process Donation Data"):
         with st.spinner("Processing donation data and updating Google Sheets..."):
             success, processed_df, worksheet_name = process_donation_data(
-                df, donor_name_col, donation_date_col, facility_col
+                df, donor_name_col, donation_date_col, facility_col, date_format
             )
             
             if success and processed_df is not None:
