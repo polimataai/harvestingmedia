@@ -122,7 +122,7 @@ def save_to_gsheets_with_error_handling(df, worksheet, sheet_key, sheet_name):
         st.code(traceback.format_exc())
         return False
 
-def process_donation_data(df, donor_name_col, donation_date_col, facility_col):
+def process_donation_data(df, donor_name_col, donation_date_col, facility_col, donor_account_col=None, donor_phone_col=None):
     """Process donation data for scheduling."""
     try:
         # Fetch center hours from GitHub
@@ -186,6 +186,11 @@ def process_donation_data(df, donor_name_col, donation_date_col, facility_col):
         # Continue with processing
         df['Donor Name'] = df[donor_name_col]
         df['Facility'] = df[facility_col]
+        # Add donor account and phone if provided
+        if donor_account_col:
+            df['Donor Account'] = df[donor_account_col]
+        if donor_phone_col:
+            df['Donor Phone'] = df[donor_phone_col]
         df['First_Name'] = df['Donor Name'].apply(extract_first_name)
         df['Center_Name'] = df['Facility'].apply(get_center_name)
         
@@ -201,9 +206,21 @@ def process_donation_data(df, donor_name_col, donation_date_col, facility_col):
         # Convert date.date to string to avoid serialization issues
         df['Date_to_Send'] = df['Next_Donation_Date'].dt.strftime('%Y-%m-%d')
         
+        # Create the output dataframe with all necessary columns
+        output_columns = ['Donor Name', 'First_Name']
+        
+        # Add optional columns if they exist
+        if 'Donor Account' in df.columns:
+            output_columns.append('Donor Account')
+        if 'Donor Phone' in df.columns:
+            output_columns.append('Donor Phone')
+            
+        # Add remaining columns
+        output_columns.extend(['Facility', 'Center_Name', 'Donation Date', 
+                              'Next_Donation_Date', 'Date_to_Send'])
+        
         # Output for Google Sheet
-        processed_df = df[['Donor Name', 'First_Name', 'Facility', 'Center_Name', 'Donation Date',
-                    'Next_Donation_Date', 'Date_to_Send']]
+        processed_df = df[output_columns]
         
         # Show summary of processed data
         valid_donations = processed_df['Donation Date'].notna().sum()
@@ -226,9 +243,17 @@ def process_donation_data(df, donor_name_col, donation_date_col, facility_col):
             except:
                 st.write(f"Creating new worksheet: {WORKSHEET_NAME}")
                 worksheet = workbook.add_worksheet(WORKSHEET_NAME, rows=1000, cols=10)
-                # Add headers
-                headers = ['Donor Name', 'First Name', 'Facility', 'Center Name', 'Donation Date',
-                          'Next Donation Date', 'Date to Send']
+                
+                # Add headers that include the new columns
+                headers = ['Donor Name', 'First Name']
+                if 'Donor Account' in df.columns:
+                    headers.append('Donor Account')
+                if 'Donor Phone' in df.columns:
+                    headers.append('Donor Phone')
+                
+                headers.extend(['Facility', 'Center Name', 'Donation Date',
+                              'Next Donation Date', 'Date to Send'])
+                
                 worksheet.append_row(headers)
             
             # Save to Google Sheets using enhanced error handling
@@ -261,6 +286,8 @@ def render_donation_scheduler_ui(df):
         
         1. Select the appropriate columns from your data:
            - **Donor Name Column**: The column containing donor names (typically in 'Last, First' format)
+           - **Donor Account Column**: The column containing donor account numbers
+           - **Donor Phone Column**: The column containing donor phone numbers
            - **Donation Date Column**: The column containing donation dates
            - **Facility Code Column**: The column containing facility codes (e.g., OLX, OLW)
         
@@ -279,9 +306,11 @@ def render_donation_scheduler_ui(df):
     
     with col1:
         donor_name_col = st.selectbox("Donor Name Column", df.columns.tolist())
-        donation_date_col = st.selectbox("Donation Date Column", df.columns.tolist())
+        donor_account_col = st.selectbox("Donor Account Column", df.columns.tolist())
+        donor_phone_col = st.selectbox("Donor Phone Column", df.columns.tolist())
     
     with col2:
+        donation_date_col = st.selectbox("Donation Date Column", df.columns.tolist())
         facility_col = st.selectbox("Facility Code Column", df.columns.tolist())
         
         # Show examples of the current date format
@@ -293,7 +322,7 @@ def render_donation_scheduler_ui(df):
             # Try to detect and show the format
             for date_val in df[donation_date_col]:
                 if not pd.isna(date_val):
-                    detected_format = detect_date_format(date_val)
+                    detected_format = detect_date_format(str(date_val).strip())
                     if detected_format:
                         st.success(f"✅ Date format will be auto-detected")
                         break
@@ -301,7 +330,7 @@ def render_donation_scheduler_ui(df):
     if st.button("Process Donation Data"):
         with st.spinner("Processing donation data and updating Google Sheets..."):
             success, processed_df, worksheet_name = process_donation_data(
-                df, donor_name_col, donation_date_col, facility_col
+                df, donor_name_col, donation_date_col, facility_col, donor_account_col, donor_phone_col
             )
             
             if success and processed_df is not None:
