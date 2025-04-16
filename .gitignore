@@ -1,0 +1,47 @@
+# Streamlit secrets
+.streamlit/secrets.toml
+
+# Python virtual environment
+venv/
+env/
+.env/
+
+# Python cache files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# IDE specific files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Operating System files
+.DS_Store
+Thumbs.db
+
+# Google credentials and other secrets
+*.json
+credentials/
+secrets/
+
+# Log files
+*.log
+
+# Local development files
+.env
+.env.local
+.env.*.local
+
+# Distribution / packaging
+dist/
+build/
+*.egg-info/
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# Local development database
+*.db
+*.sqlite 
