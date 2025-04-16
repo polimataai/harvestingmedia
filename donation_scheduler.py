@@ -302,16 +302,53 @@ def render_donation_scheduler_ui(df):
     
     st.markdown("Please select which columns contain the required information:")
     
+    # Get column names from dataframe
+    columns = df.columns.tolist()
+    
+    # Define patterns for automatic column detection
+    donor_name_patterns = ['donor name', 'donor', 'name', 'full name']
+    donor_account_patterns = ['donor #', 'donor account', 'account', 'donor number', 'donor id', 'id']
+    donor_phone_patterns = ['donor phone', 'phone', 'phone number', 'contact', 'telephone']
+    donation_date_patterns = ['donation date', 'date', 'donation time', 'draw date']
+    facility_patterns = ['facility', 'center', 'location', 'center code', 'facility code']
+    
+    # Find default column indices
+    donor_name_default = find_column_by_pattern(columns, donor_name_patterns)
+    donor_account_default = find_column_by_pattern(columns, donor_account_patterns)
+    donor_phone_default = find_column_by_pattern(columns, donor_phone_patterns)
+    donation_date_default = find_column_by_pattern(columns, donation_date_patterns)
+    facility_default = find_column_by_pattern(columns, facility_patterns)
+    
     col1, col2 = st.columns(2)
     
     with col1:
-        donor_name_col = st.selectbox("Donor Name Column", df.columns.tolist())
-        donor_account_col = st.selectbox("Donor Account Column", df.columns.tolist())
-        donor_phone_col = st.selectbox("Donor Phone Column", df.columns.tolist())
+        donor_name_col = st.selectbox(
+            "Donor Name Column", 
+            columns,
+            index=donor_name_default
+        )
+        donor_account_col = st.selectbox(
+            "Donor Account Column", 
+            columns,
+            index=donor_account_default
+        )
+        donor_phone_col = st.selectbox(
+            "Donor Phone Column", 
+            columns,
+            index=donor_phone_default
+        )
     
     with col2:
-        donation_date_col = st.selectbox("Donation Date Column", df.columns.tolist())
-        facility_col = st.selectbox("Facility Code Column", df.columns.tolist())
+        donation_date_col = st.selectbox(
+            "Donation Date Column", 
+            columns,
+            index=donation_date_default
+        )
+        facility_col = st.selectbox(
+            "Facility Code Column", 
+            columns,
+            index=facility_default
+        )
         
         # Show examples of the current date format
         if donation_date_col in df.columns:
@@ -349,4 +386,31 @@ def render_donation_scheduler_ui(df):
                 st.markdown("### Preview of Processed Data")
                 st.dataframe(processed_df.head(10))
             else:
-                st.error("❌ Failed to process donation data.") 
+                st.error("❌ Failed to process donation data.")
+
+def find_column_by_pattern(columns, patterns):
+    """Find the index of a column that best matches the given patterns."""
+    # Try exact match first
+    for pattern in patterns:
+        for i, col in enumerate(columns):
+            if str(col).lower() == pattern:
+                return i
+    
+    # Then try contains match
+    for pattern in patterns:
+        for i, col in enumerate(columns):
+            if pattern in str(col).lower():
+                return i
+    
+    # Return first column as default
+    return 0
+
+# Example usage
+if __name__ == "__main__":
+    render_donation_scheduler_ui(pd.DataFrame({
+        'Donor Name': ['John Doe', 'Jane Smith'],
+        'Donor Account': ['123456789', '987654321'],
+        'Donor Phone': ['555-1234', '555-5678'],
+        'Donation Date': ['2024-05-01', '2024-05-02'],
+        'Facility': ['OLX', 'OLW']
+    })) 
