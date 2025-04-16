@@ -89,10 +89,15 @@ def save_to_gsheets_with_error_handling(df, worksheet, sheet_key, sheet_name):
         # Replace NaN values with empty strings
         df_clean = df.fillna('')
         
-        # Convert datetime columns to strings to prevent serialization issues
-        for col in df_clean.columns:
-            if pd.api.types.is_datetime64_any_dtype(df_clean[col]):
-                df_clean[col] = df_clean[col].dt.strftime('%Y-%m-%d %H:%M:%S')
+        # We need to convert the dataframe to a list of lists before converting date objects
+        rows = df_clean.values.tolist()
+        
+        # Convert all date/datetime objects to strings in the rows
+        for i, row in enumerate(rows):
+            for j, val in enumerate(row):
+                # Check if the value is a date or datetime object
+                if hasattr(val, 'strftime'):  # Both date and datetime have strftime
+                    rows[i][j] = val.strftime('%Y-%m-%d')
         
         # Get the last row with data
         last_row = len(worksheet.get_all_values())
@@ -102,7 +107,7 @@ def save_to_gsheets_with_error_handling(df, worksheet, sheet_key, sheet_name):
         
         # Append new records starting from the next row
         worksheet.append_rows(
-            df_clean.values.tolist(),
+            rows,
             value_input_option='RAW',
             insert_data_option='INSERT_ROWS',
             table_range=f'A{last_row + 1}'
@@ -192,7 +197,9 @@ def process_donation_data(df, donor_name_col, donation_date_col, facility_col):
             if not pd.isna(row['Donation Date']) else pd.NaT, 
             axis=1
         )
-        df['Date_to_Send'] = df['Next_Donation_Date'].dt.date  # For filtering in Google Sheets
+        
+        # Convert date.date to string to avoid serialization issues
+        df['Date_to_Send'] = df['Next_Donation_Date'].dt.strftime('%Y-%m-%d')
         
         # Output for Google Sheet
         processed_df = df[['Donor Name', 'First_Name', 'Facility', 'Center_Name', 'Donation Date',
