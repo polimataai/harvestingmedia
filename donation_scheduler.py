@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import requests
 from datetime import timedelta
+import re
 from utils import save_to_gsheets, get_google_sheets_connection
 
 SPREADSHEET_KEY = "1mlOhXY4aITLXXGS7IDrQfaZcg3MwxvI0vm3hDgswsB0"
@@ -21,15 +22,21 @@ FACILITY_MAPPING = {
     'OLH': 'FORDHAM',
 }
 
-# Common date formats with their pandas format strings
-DATE_FORMATS = {
-    "MM/DD/YYYY (e.g., 01/31/2023)": "%m/%d/%Y",
-    "DD/MM/YYYY (e.g., 31/01/2023)": "%d/%m/%Y",
-    "YYYY-MM-DD (e.g., 2023-01-31)": "%Y-%m-%d",
-    "MM-DD-YYYY (e.g., 01-31-2023)": "%m-%d-%Y",
-    "DD-MM-YYYY (e.g., 31-01-2023)": "%d-%m-%Y",
-    "YYYY/MM/DD (e.g., 2023/01/31)": "%Y/%m/%d",
-}
+# Date format patterns for automatic detection
+DATE_PATTERNS = [
+    # YYYY-MM-DD HH:MM:SS
+    (r'\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}', '%Y-%m-%d %H:%M:%S'),
+    # MM/DD/YYYY
+    (r'\d{1,2}/\d{1,2}/\d{4}', '%m/%d/%Y'),
+    # DD/MM/YYYY
+    (r'\d{1,2}/\d{1,2}/\d{4}', '%d/%m/%Y'),
+    # YYYY-MM-DD
+    (r'\d{4}-\d{2}-\d{2}', '%Y-%m-%d'),
+    # MM-DD-YYYY
+    (r'\d{1,2}-\d{1,2}-\d{4}', '%m-%d-%Y'),
+    # YYYY/MM/DD
+    (r'\d{4}/\d{1,2}/\d{1,2}', '%Y/%m/%d'),
+]
 
 def extract_first_name(full_name):
     """Extract first name from 'Last, First' format."""
@@ -56,23 +63,53 @@ def get_next_open_date(donation_date, facility_code, center_hours):
     
     return check_date
 
-def process_donation_data(df, donor_name_col, donation_date_col, facility_col, date_format=None):
+def detect_date_format(date_sample):
+    """Auto-detect date format from sample."""
+    if pd.isna(date_sample):
+        return None
+    
+    date_str = str(date_sample)
+    
+    # Check each pattern
+    for pattern, date_format in DATE_PATTERNS:
+        if re.match(pattern, date_str):
+            # Try to parse with this format
+            try:
+                pd.to_datetime(date_str, format=date_format)
+                return date_format
+            except:
+                continue
+    
+    # Default fallback
+    return None
+
+def process_donation_data(df, donor_name_col, donation_date_col, facility_col):
     """Process donation data for scheduling."""
     try:
         # Fetch center hours from GitHub
         response = requests.get("https://olgamlife.github.io/chatbot/hoursolgam.json")
         center_hours = response.json()
         
+        # Auto-detect date format from the first non-null value
+        date_format = None
+        for date_val in df[donation_date_col]:
+            if not pd.isna(date_val):
+                date_format = detect_date_format(date_val)
+                if date_format:
+                    break
+        
         # Process DataFrame
         if date_format:
+            st.info(f"📅 Detected date format: {date_format}")
             df['Donation Date'] = pd.to_datetime(df[donation_date_col], format=date_format, errors='coerce')
         else:
+            # Fallback to pandas auto-detection
             df['Donation Date'] = pd.to_datetime(df[donation_date_col], errors='coerce')
         
         # Check for invalid dates and notify user
         invalid_dates = df['Donation Date'].isna().sum()
         if invalid_dates > 0:
-            st.warning(f"⚠️ {invalid_dates} dates could not be parsed. Please check the date format.")
+            st.warning(f"⚠️ {invalid_dates} dates could not be parsed. Please check your data.")
         
         df['Donor Name'] = df[donor_name_col]
         df['Facility'] = df[facility_col]
@@ -113,6 +150,26 @@ def process_donation_data(df, donor_name_col, donation_date_col, facility_col, d
 def render_donation_scheduler_ui(df):
     """Render UI for donation scheduler process."""
     st.markdown("### Map Columns")
+    
+    # Add helpful instructions
+    with st.expander("Instructions for using the Donation Scheduler", expanded=True):
+        st.markdown("""
+        **How to use the Donation Scheduler:**
+        
+        1. Select the appropriate columns from your data:
+           - **Donor Name Column**: The column containing donor names (typically in 'Last, First' format)
+           - **Donation Date Column**: The column containing donation dates
+           - **Facility Code Column**: The column containing facility codes (e.g., OLX, OLW)
+        
+        2. Click "Process Donation Data" to:
+           - Extract first names from full names
+           - Map facility codes to center names
+           - Calculate the next available donation date based on center hours
+           - Save results to Google Sheets
+        
+        The date format will be automatically detected from your data.
+        """)
+    
     st.markdown("Please select which columns contain the required information:")
     
     col1, col2 = st.columns(2)
@@ -120,14 +177,6 @@ def render_donation_scheduler_ui(df):
     with col1:
         donor_name_col = st.selectbox("Donor Name Column", df.columns.tolist())
         donation_date_col = st.selectbox("Donation Date Column", df.columns.tolist())
-        
-        # Add date format selection
-        date_format_description = st.selectbox(
-            "Donation Date Format",
-            list(DATE_FORMATS.keys()),
-            help="Select the format of your donation dates"
-        )
-        date_format = DATE_FORMATS[date_format_description]
     
     with col2:
         facility_col = st.selectbox("Facility Code Column", df.columns.tolist())
@@ -135,12 +184,21 @@ def render_donation_scheduler_ui(df):
         # Show examples of the current date format
         if donation_date_col in df.columns:
             st.markdown("#### Date Preview")
-            st.text(f"Example dates from your file:\n{df[donation_date_col].head(3).to_string(index=False)}")
+            date_samples = df[donation_date_col].head(3).to_string(index=False)
+            st.text(f"Example dates from your file:\n{date_samples}")
+            
+            # Try to detect and show the format
+            for date_val in df[donation_date_col]:
+                if not pd.isna(date_val):
+                    detected_format = detect_date_format(date_val)
+                    if detected_format:
+                        st.success(f"✅ Date format will be auto-detected")
+                        break
     
     if st.button("Process Donation Data"):
         with st.spinner("Processing donation data and updating Google Sheets..."):
             success, processed_df, worksheet_name = process_donation_data(
-                df, donor_name_col, donation_date_col, facility_col, date_format
+                df, donor_name_col, donation_date_col, facility_col
             )
             
             if success and processed_df is not None:
