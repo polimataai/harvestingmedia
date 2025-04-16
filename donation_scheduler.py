@@ -24,14 +24,14 @@ FACILITY_MAPPING = {
 
 # Date format patterns for automatic detection
 DATE_PATTERNS = [
+    # YYYY-MM-DD (without time)
+    (r'^\d{4}-\d{2}-\d{2}$', '%Y-%m-%d'),
     # YYYY-MM-DD HH:MM:SS
     (r'\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}', '%Y-%m-%d %H:%M:%S'),
     # MM/DD/YYYY
     (r'\d{1,2}/\d{1,2}/\d{4}', '%m/%d/%Y'),
     # DD/MM/YYYY
     (r'\d{1,2}/\d{1,2}/\d{4}', '%d/%m/%Y'),
-    # YYYY-MM-DD
-    (r'\d{4}-\d{2}-\d{2}', '%Y-%m-%d'),
     # MM-DD-YYYY
     (r'\d{1,2}-\d{1,2}-\d{4}', '%m-%d-%Y'),
     # YYYY/MM/DD
@@ -68,7 +68,7 @@ def detect_date_format(date_sample):
     if pd.isna(date_sample):
         return None
     
-    date_str = str(date_sample)
+    date_str = str(date_sample).strip()
     
     # Check each pattern
     for pattern, date_format in DATE_PATTERNS:
@@ -83,38 +83,110 @@ def detect_date_format(date_sample):
     # Default fallback
     return None
 
+def save_to_gsheets_with_error_handling(df, worksheet, sheet_key, sheet_name):
+    """Save to Google Sheets with detailed error handling."""
+    try:
+        # Replace NaN values with empty strings
+        df_clean = df.fillna('')
+        
+        # Convert datetime columns to strings to prevent serialization issues
+        for col in df_clean.columns:
+            if pd.api.types.is_datetime64_any_dtype(df_clean[col]):
+                df_clean[col] = df_clean[col].dt.strftime('%Y-%m-%d %H:%M:%S')
+        
+        # Get the last row with data
+        last_row = len(worksheet.get_all_values())
+        
+        # Check worksheet access
+        st.write(f"Preparing to write {len(df_clean)} rows to {sheet_name} worksheet...")
+        
+        # Append new records starting from the next row
+        worksheet.append_rows(
+            df_clean.values.tolist(),
+            value_input_option='RAW',
+            insert_data_option='INSERT_ROWS',
+            table_range=f'A{last_row + 1}'
+        )
+        
+        st.success(f"✅ Successfully saved data to Google Sheet: {sheet_key}, worksheet: {sheet_name}")
+        return True
+    except Exception as e:
+        st.error(f"❌ Error saving to Google Sheets: {str(e)}")
+        # Include more detailed error information
+        import traceback
+        st.code(traceback.format_exc())
+        return False
+
 def process_donation_data(df, donor_name_col, donation_date_col, facility_col):
     """Process donation data for scheduling."""
     try:
         # Fetch center hours from GitHub
-        response = requests.get("https://olgamlife.github.io/chatbot/hoursolgam.json")
-        center_hours = response.json()
+        try:
+            st.info("📅 Fetching center hours from OLGAM API...")
+            response = requests.get("https://olgamlife.github.io/chatbot/hoursolgam.json", timeout=10)
+            response.raise_for_status()  # Raise error for bad responses
+            center_hours = response.json()
+            st.success("✅ Successfully fetched center hours")
+        except requests.exceptions.RequestException as e:
+            st.error(f"❌ Error fetching center hours: {str(e)}")
+            st.warning("⚠️ Will use fallback scheduling (2 days after donation)")
+            # Create empty dict as fallback
+            center_hours = {}
+            
+        # Show the facility codes in the data vs. known centers
+        unique_facilities = df[facility_col].dropna().unique().tolist()
+        st.write(f"Facility codes in data: {', '.join(unique_facilities)}")
+        mapped_centers = [f"{code} → {get_center_name(code)}" for code in unique_facilities]
+        st.write(f"Mapped to centers: {', '.join(mapped_centers)}")
         
         # Auto-detect date format from the first non-null value
         date_format = None
         for date_val in df[donation_date_col]:
             if not pd.isna(date_val):
-                date_format = detect_date_format(date_val)
+                date_format = detect_date_format(str(date_val).strip())
                 if date_format:
                     break
         
         # Process DataFrame
         if date_format:
             st.info(f"📅 Detected date format: {date_format}")
-            df['Donation Date'] = pd.to_datetime(df[donation_date_col], format=date_format, errors='coerce')
+            try:
+                df['Donation Date'] = pd.to_datetime(df[donation_date_col], format=date_format, errors='coerce')
+                
+                # Show helpful information for debugging
+                if df['Donation Date'].isna().all():
+                    st.error("❌ Failed to parse any dates with the detected format. Trying alternative formats...")
+                    # Try without a specific format as fallback
+                    df['Donation Date'] = pd.to_datetime(df[donation_date_col], errors='coerce')
+            except Exception as e:
+                st.error(f"❌ Error parsing dates: {str(e)}. Trying alternative approach...")
+                # Fallback to pandas auto-detection
+                df['Donation Date'] = pd.to_datetime(df[donation_date_col], errors='coerce')
         else:
             # Fallback to pandas auto-detection
+            st.warning("⚠️ Could not detect date format. Trying pandas auto-detection...")
             df['Donation Date'] = pd.to_datetime(df[donation_date_col], errors='coerce')
         
         # Check for invalid dates and notify user
         invalid_dates = df['Donation Date'].isna().sum()
         if invalid_dates > 0:
             st.warning(f"⚠️ {invalid_dates} dates could not be parsed. Please check your data.")
+            
+            # If all dates failed, show sample data to help debugging
+            if invalid_dates == len(df):
+                st.error("❌ All dates failed to parse! Sample of your data:")
+                st.write(df[donation_date_col].head(3).tolist())
+                return False, None, None
         
+        # Continue with processing
         df['Donor Name'] = df[donor_name_col]
         df['Facility'] = df[facility_col]
         df['First_Name'] = df['Donor Name'].apply(extract_first_name)
         df['Center_Name'] = df['Facility'].apply(get_center_name)
+        
+        # Show more debugging information
+        st.write("Processing center data and calculating next donation dates...")
+        
         df['Next_Donation_Date'] = df.apply(
             lambda row: get_next_open_date(row['Donation Date'], row['Facility'], center_hours) 
             if not pd.isna(row['Donation Date']) else pd.NaT, 
@@ -126,25 +198,49 @@ def process_donation_data(df, donor_name_col, donation_date_col, facility_col):
         processed_df = df[['Donor Name', 'First_Name', 'Facility', 'Center_Name', 'Donation Date',
                     'Next_Donation_Date', 'Date_to_Send']]
         
+        # Show summary of processed data
+        valid_donations = processed_df['Donation Date'].notna().sum()
+        valid_next_dates = processed_df['Next_Donation_Date'].notna().sum()
+        
+        st.write(f"Successfully processed {valid_donations} donations")
+        st.write(f"Scheduled {valid_next_dates} next donation dates")
+        
         # Get Google Sheets connection
-        gc = get_google_sheets_connection()
-        workbook = gc.open_by_key(SPREADSHEET_KEY)
-        
-        # Try to get the worksheet, if it doesn't exist, create it
         try:
-            worksheet = workbook.worksheet(WORKSHEET_NAME)
-        except:
-            worksheet = workbook.add_worksheet(WORKSHEET_NAME, rows=1000, cols=10)
-            # Add headers
-            headers = ['Donor Name', 'First Name', 'Facility', 'Center Name', 'Donation Date',
-                      'Next Donation Date', 'Date to Send']
-            worksheet.append_row(headers)
-        
-        # Save to Google Sheets
-        return save_to_gsheets(processed_df, worksheet), processed_df, WORKSHEET_NAME
+            st.info("📊 Connecting to Google Sheets...")
+            gc = get_google_sheets_connection()
+            workbook = gc.open_by_key(SPREADSHEET_KEY)
+            st.success("✅ Successfully connected to Google Sheets")
+            
+            # Try to get the worksheet, if it doesn't exist, create it
+            try:
+                worksheet = workbook.worksheet(WORKSHEET_NAME)
+                st.write(f"Found existing worksheet: {WORKSHEET_NAME}")
+            except:
+                st.write(f"Creating new worksheet: {WORKSHEET_NAME}")
+                worksheet = workbook.add_worksheet(WORKSHEET_NAME, rows=1000, cols=10)
+                # Add headers
+                headers = ['Donor Name', 'First Name', 'Facility', 'Center Name', 'Donation Date',
+                          'Next Donation Date', 'Date to Send']
+                worksheet.append_row(headers)
+            
+            # Save to Google Sheets using enhanced error handling
+            if save_to_gsheets_with_error_handling(processed_df, worksheet, SPREADSHEET_KEY, WORKSHEET_NAME):
+                return True, processed_df, WORKSHEET_NAME
+            else:
+                return False, processed_df, WORKSHEET_NAME
+                
+        except Exception as e:
+            st.error(f"❌ Error connecting to Google Sheets: {str(e)}")
+            import traceback
+            st.code(traceback.format_exc())
+            return False, processed_df, WORKSHEET_NAME
         
     except Exception as e:
         st.error(f"Error processing donation data: {str(e)}")
+        # Show more detailed error for debugging
+        import traceback
+        st.code(traceback.format_exc())
         return False, None, None
 
 def render_donation_scheduler_ui(df):
