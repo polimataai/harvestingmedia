@@ -12,7 +12,7 @@ from market_place import render_market_place_ui
 
 # Basic page configuration
 st.set_page_config(
-    page_title="Harvesting Media - Data Processor",
+    page_title="Harvesting Media - Data Processor 2.0",
     page_icon="🌾",
     layout="wide",
     initial_sidebar_state="collapsed"
