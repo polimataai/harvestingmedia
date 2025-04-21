@@ -7,6 +7,8 @@ from certo_market import render_certo_market_ui
 from ferreira import render_ferreira_ui
 from certo_market_visits import render_certo_market_visits_ui
 from donation_scheduler import render_donation_scheduler_ui
+from key_food import render_key_food_ui
+from market_place import render_market_place_ui
 
 # Basic page configuration
 st.set_page_config(
@@ -43,7 +45,8 @@ def main():
     # Process selection
     process = st.selectbox(
         "Select Process",
-        ["Certo Market", "Ferreira", "Certo Market Visits Report", "Donation Scheduler"],
+        ["Certo Market", "Ferreira", "Certo Market Visits Report", "Donation Scheduler", 
+         "Key Food Valley Stream", "The Market Place"],
         help="Choose which process to run",
         key="process"
     )
@@ -57,8 +60,19 @@ def main():
     # Update previous process
     st.session_state['previous_process'] = process
     
-    # File uploader
-    uploaded_file = st.file_uploader("Choose a file (CSV, XLSX, or TXT)", type=['csv', 'xlsx', 'txt'])
+    # File uploader with format detection
+    file_extensions = ['csv', 'xlsx', 'txt']
+    file_type_message = ""
+    
+    # Adjust file uploader based on process
+    if process == "Key Food Valley Stream":
+        file_extensions = ['csv']
+        file_type_message = "(CSV format)"
+    elif process == "The Market Place":
+        file_extensions = ['xlsx']
+        file_type_message = "(XLSX format)"
+    
+    uploaded_file = st.file_uploader(f"Choose a file {file_type_message}", type=file_extensions)
     
     if uploaded_file is not None:
         try:
@@ -85,6 +99,10 @@ def main():
                 render_certo_market_visits_ui(df)
             elif process == "Donation Scheduler":
                 render_donation_scheduler_ui(df)
+            elif process == "Key Food Valley Stream":
+                render_key_food_ui(df)
+            elif process == "The Market Place":
+                render_market_place_ui(df)
                 
         except Exception as e:
             st.error(f"❌ Error processing file: {str(e)}")
