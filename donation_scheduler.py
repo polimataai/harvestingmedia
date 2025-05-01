@@ -39,9 +39,13 @@ DATE_PATTERNS = [
 ]
 
 def extract_first_name(full_name):
-    """Extract first name from 'Last, First' format."""
-    if isinstance(full_name, str) and ',' in full_name:
-        return full_name.split(',')[1].strip().title()
+    """Extract first name from 'Last, First' format or return the name if it's a single name."""
+    if isinstance(full_name, str):
+        if ',' in full_name:
+            return full_name.split(',')[1].strip().title()
+        else:
+            # Handle single name (no comma)
+            return full_name.strip().title()
     return ""
 
 def get_center_name(facility_code):
