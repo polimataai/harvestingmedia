@@ -18,8 +18,8 @@ FACILITY_MAPPING = {
     'OLF': 'FLATBUSH',
     'OLB': 'BROOKLYN',
     'HPF': 'FT_PIERCE',
-    'OLG': 'EASTHARLEM',
-    'OLH': 'FORDHAM',
+    'OLH': 'EASTHARLEM',
+    'OLG': 'FORDHAM',
 }
 
 # Date format patterns for automatic detection
