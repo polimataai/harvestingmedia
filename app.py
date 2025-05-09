@@ -35,7 +35,7 @@ def main():
         return
 
     # Header
-    st.title("🌾 Harvesting Media")
+    st.title("🌾 Harvesting Media v2")
     st.subheader("Data Processor")
     
     # Initialize session state for process if not exists
