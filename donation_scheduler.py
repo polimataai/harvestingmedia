@@ -10,13 +10,13 @@ WORKSHEET_NAME = "Donation_Schedule"
 
 # Facility code → full center name mapping
 FACILITY_MAPPING = {
-    'OLX': 'BRONX',
+    'OLX': 'MELROSE',
     'OLW': 'PARKCHESTER',
     'OLL': 'HOWARD_BEACH',
     'OLK': 'BROWNSVILLE',
     'OLJ': 'JAMAICA',
     'OLF': 'FLATBUSH',
-    'OLB': 'BROOKLYN',
+    'OLB': 'CLINTON_HILL',
     'HPF': 'FT_PIERCE',
     'OLH': 'EASTHARLEM',
     'OLG': 'FORDHAM',
@@ -127,7 +127,7 @@ def save_to_gsheets_with_error_handling(df, worksheet, sheet_key, sheet_name):
         return False
 
 def process_donation_data(df, donor_name_col, donation_date_col, facility_col, donor_account_col=None, donor_phone_col=None):
-    """Process donation data for scheduling."""
+    """Process donation data for scheduling.""" 
     try:
         # Fetch center hours from GitHub
         try:
