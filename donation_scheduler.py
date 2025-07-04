@@ -126,9 +126,20 @@ def save_to_gsheets_with_error_handling(df, worksheet, sheet_key, sheet_name):
         st.code(traceback.format_exc())
         return False
 
-def process_donation_data(df, donor_name_col, donation_date_col, facility_col, donor_account_col=None, donor_phone_col=None):
+def process_donation_data(df, donor_name_col, donation_date_col, facility_col, donor_account_col=None, donor_phone_col=None, donor_status_col=None):
     """Process donation data for scheduling.""" 
     try:
+        # Filter for NEW donors if status column is provided
+        if donor_status_col:
+            original_count = len(df)
+            df = df[df[donor_status_col].str.upper() == 'NEW']
+            filtered_count = len(df)
+            st.info(f"📊 Filtered {filtered_count} NEW donors from {original_count} total records")
+            
+            if filtered_count == 0:
+                st.error("❌ No NEW donors found in the data. Please check your donor status column.")
+                return False, None, None
+
         # Fetch center hours from GitHub
         try:
             st.info("📅 Fetching center hours from OLGAM API...")
@@ -294,8 +305,10 @@ def render_donation_scheduler_ui(df):
            - **Donor Phone Column**: The column containing donor phone numbers
            - **Donation Date Column**: The column containing donation dates
            - **Facility Code Column**: The column containing facility codes (e.g., OLX, OLW)
+           - **Donor Status Column**: The column containing donor status (will filter for NEW donors)
         
         2. Click "Process Donation Data" to:
+           - Filter for NEW donors
            - Extract first names from full names
            - Map facility codes to center names
            - Calculate the next available donation date based on center hours
@@ -315,6 +328,7 @@ def render_donation_scheduler_ui(df):
     donor_phone_patterns = ['donor phone', 'phone', 'phone number', 'contact', 'telephone']
     donation_date_patterns = ['donation date', 'date', 'donation time', 'draw date']
     facility_patterns = ['facility', 'center', 'location', 'center code', 'facility code']
+    donor_status_patterns = ['donor status', 'status', 'type']
     
     # Find default column indices
     donor_name_default = find_column_by_pattern(columns, donor_name_patterns)
@@ -322,6 +336,7 @@ def render_donation_scheduler_ui(df):
     donor_phone_default = find_column_by_pattern(columns, donor_phone_patterns)
     donation_date_default = find_column_by_pattern(columns, donation_date_patterns)
     facility_default = find_column_by_pattern(columns, facility_patterns)
+    donor_status_default = find_column_by_pattern(columns, donor_status_patterns)
     
     col1, col2 = st.columns(2)
     
@@ -353,6 +368,11 @@ def render_donation_scheduler_ui(df):
             columns,
             index=facility_default
         )
+        donor_status_col = st.selectbox(
+            "Donor Status Column",
+            columns,
+            index=donor_status_default
+        )
         
         # Show examples of the current date format
         if donation_date_col in df.columns:
@@ -371,7 +391,8 @@ def render_donation_scheduler_ui(df):
     if st.button("Process Donation Data"):
         with st.spinner("Processing donation data and updating Google Sheets..."):
             success, processed_df, worksheet_name = process_donation_data(
-                df, donor_name_col, donation_date_col, facility_col, donor_account_col, donor_phone_col
+                df, donor_name_col, donation_date_col, facility_col, 
+                donor_account_col, donor_phone_col, donor_status_col
             )
             
             if success and processed_df is not None:
@@ -380,9 +401,9 @@ def render_donation_scheduler_ui(df):
                 # Display statistics
                 col1, col2, col3 = st.columns(3)
                 with col1:
-                    st.metric("Total Donations", len(processed_df))
+                    st.metric("Total NEW Donations", len(processed_df))
                 with col2:
-                    st.metric("Unique Donors", len(processed_df['Donor Name'].unique()))
+                    st.metric("Unique NEW Donors", len(processed_df['Donor Name'].unique()))
                 with col3:
                     st.metric("Centers", len(processed_df['Center_Name'].unique()))
                 
